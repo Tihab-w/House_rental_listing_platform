@@ -1,32 +1,26 @@
 # Dependencies
-
 node_modules/
-frontend/node_modules/
-backend/node_modules/
+*/node_modules/
 
-# Environment variables (NEVER push these)
-
+# Environment variables
 .env
-\*.env
+.env.local
 backend/.env
 
-# Database files (you don't want to push your local test data)
+# Database (don't push test data)
+backend/rental.db
+backend/rental.db-wal
+backend/rental.db-shm
 
-backend/_.db
-backend/_.db-wal
-backend/\*.db-shm
-
-# Uploaded images (these are for your local machine only)
-
+# Uploaded photos (don't push test images)
 backend/uploads/
 
-# Build output
-
+# Build outputs
+build/
+dist/
 frontend/dist/
-backend/dist/
 
 # Logs and OS files
-
-\*.log
+*.log
 .DS_Store
 Thumbs.db
