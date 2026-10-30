@@ -1,9 +1,7 @@
 const router = require('express').Router();
 const db = require('../db');
- 
 const { auth, requireRole } = require('../middleware/auth');
 
-// Helper: persist + emit a notification
 function notify(io, userId, payload) {
   db.prepare(`INSERT INTO notifications (user_id,type,title,body,link)
     VALUES (?,?,?,?,?)`).run(
@@ -13,7 +11,6 @@ function notify(io, userId, payload) {
   io.to(`user_${userId}`).emit('notification', n);
 }
 
-// Helper: check if dates overlap an existing active booking
 function overlaps(propertyId, checkIn, checkOut, ignoreId = null) {
   const q = `SELECT 1 FROM bookings
     WHERE property_id=? AND status IN ('pending','confirmed')
@@ -25,9 +22,6 @@ function overlaps(propertyId, checkIn, checkOut, ignoreId = null) {
   return !!db.prepare(q).get(...args);
 }
 
-/* =========================================================
-   CREATE BOOKING  (customer)
-   ========================================================= */
 router.post('/', auth(), (req, res) => {
   const { property_id, check_in, check_out, guests = 1 } = req.body;
 
@@ -45,15 +39,18 @@ router.post('/', auth(), (req, res) => {
   if (guests > prop.max_guests)
     return res.status(400).json({ error: `Max ${prop.max_guests} guests allowed` });
   if (overlaps(property_id, check_in, check_out))
-    return res.status(409).json({ error: 'Dates unavailable' });
+    return res.status(409).json({ error: 'Dates unavailable. Please select other dates.' });
 
-  // Calculate fees
-  const nights = Math.ceil((new Date(check_out) - new Date(check_in)) / 86400000);
-  const subtotal = nights * prop.price_per_night;
+  // Calculate months of stay (treat days as rent, but price is monthly)
+  const days = Math.ceil((new Date(check_out) - new Date(check_in)) / 86400000);
+  // Convert days to "months" (1 month ≈ 30 days)
+  const months = Math.max(1, Math.round(days / 30 * 10) / 10); 
+  
+  // The `price_per_night` field in the database now represents monthly price
+  const subtotal = months * prop.price_per_night;
   const serviceFee = Math.round(subtotal * 0.05 * 100) / 100;
   const total = subtotal + serviceFee;
 
-  // Create booking
   const info = db.prepare(`INSERT INTO bookings
     (property_id,customer_id,check_in,check_out,guests,total_price,status)
     VALUES (?,?,?,?,?,?,'pending')`).run(
@@ -73,9 +70,15 @@ router.post('/', auth(), (req, res) => {
 
   res.json({ booking, subtotal, serviceFee, total });
 });
-/* =========================================================
-   CUSTOMER'S BOOKINGS
-   ========================================================= */
+
+router.get('/availability/:propertyId', (req, res) => {
+  const bookings = db.prepare(`
+    SELECT check_in, check_out FROM bookings 
+    WHERE property_id = ? AND status IN ('pending', 'confirmed')
+  `).all(req.params.propertyId);
+  res.json(bookings);
+});
+
 router.get('/mine', auth(), (req, res) => {
   const rows = db.prepare(`
     SELECT b.*, p.title, p.city, p.images, p.owner_id,
@@ -97,9 +100,6 @@ router.get('/mine', auth(), (req, res) => {
   })));
 });
 
-/* =========================================================
-   OWNER'S BOOKINGS  (with payment_id fix ✅)
-   ========================================================= */
 router.get('/owner', auth(), requireRole('owner'), (req, res) => {
   const rows = db.prepare(`
     SELECT b.*,
@@ -124,12 +124,8 @@ router.get('/owner', auth(), requireRole('owner'), (req, res) => {
   })));
 });
 
-/* =========================================================
-   OWNER ACCEPTS / DECLINES / COMPLETES
-   ========================================================= */
 router.patch('/:id/status', auth(), requireRole('owner'), (req, res) => {
   const { status } = req.body;
-
   if (!['confirmed', 'declined', 'completed'].includes(status))
     return res.status(400).json({ error: 'Bad status' });
 
@@ -144,8 +140,7 @@ router.patch('/:id/status', auth(), requireRole('owner'), (req, res) => {
   if (b.owner_id !== req.user.id)
     return res.status(403).json({ error: 'Forbidden' });
 
-  db.prepare('UPDATE bookings SET status=? WHERE id=?')
-    .run(status, req.params.id);
+  db.prepare('UPDATE bookings SET status=? WHERE id=?').run(status, req.params.id);
 
   const titles = {
     confirmed: '✅ Booking confirmed!',
@@ -160,17 +155,10 @@ router.patch('/:id/status', auth(), requireRole('owner'), (req, res) => {
     link: '/bookings'
   });
 
-  req.io.to(`user_${b.customer_id}`).emit('booking:update', {
-    bookingId: b.id,
-    status
-  });
-
+  req.io.to(`user_${b.customer_id}`).emit('booking:update', { bookingId: b.id, status });
   res.json({ ok: true });
 });
 
-/* =========================================================
-   CUSTOMER CANCELS
-   ========================================================= */
 router.patch('/:id/cancel', auth(), (req, res) => {
   const b = db.prepare(`
     SELECT b.*, p.owner_id, p.title
@@ -185,8 +173,7 @@ router.patch('/:id/cancel', auth(), (req, res) => {
   if (['cancelled', 'completed'].includes(b.status))
     return res.status(400).json({ error: 'Cannot cancel this booking' });
 
-  db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?")
-    .run(req.params.id);
+  db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(req.params.id);
 
   notify(req.io, b.owner_id, {
     type: 'booking',
@@ -195,17 +182,10 @@ router.patch('/:id/cancel', auth(), (req, res) => {
     link: '/owner/bookings'
   });
 
-  req.io.to(`user_${b.owner_id}`).emit('booking:update', {
-    bookingId: b.id,
-    status: 'cancelled'
-  });
-
+  req.io.to(`user_${b.owner_id}`).emit('booking:update', { bookingId: b.id, status: 'cancelled' });
   res.json({ ok: true });
 });
 
-/* =========================================================
-   SINGLE BOOKING DETAIL
-   ========================================================= */
 router.get('/:id', auth(), (req, res) => {
   const b = db.prepare(`
     SELECT b.*,
@@ -225,22 +205,10 @@ router.get('/:id', auth(), (req, res) => {
   `).get(req.params.id);
 
   if (!b) return res.status(404).json({ error: 'Booking not found' });
-
-  // Only the customer or owner can view
   if (b.customer_id !== req.user.id && b.owner_id !== req.user.id)
     return res.status(403).json({ error: 'Forbidden' });
 
   res.json({ ...b, images: JSON.parse(b.images || '[]') });
-});
-
-// Get already booked dates for a property
-router.get('/availability/:propertyId', (req, res) => {
-  const bookings = db.prepare(`
-    SELECT check_in, check_out FROM bookings 
-    WHERE property_id = ? AND status IN ('pending', 'confirmed')
-  `).all(req.params.propertyId);
-  
-  res.json(bookings);
 });
 
 module.exports = router;
