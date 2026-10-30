@@ -16,7 +16,6 @@ export default function PropertyDetail() {
   const [imgIndex, setImgIndex] = useState(0);
 
   useEffect(() => {
-    // Fetch property details AND booked dates
     Promise.all([
       api.get(`/properties/${id}`),
       api.get(`/bookings/availability/${id}`)
@@ -31,26 +30,22 @@ export default function PropertyDetail() {
   if (loading) return <div className="container section">Loading…</div>;
   if (!p) return <div className="container section"><div className="error">{err}</div></div>;
 
-  // Check if selected dates overlap with existing bookings
   const hasOverlap = () => {
     if (!range.check_in || !range.check_out) return false;
-    return bookedDates.some(b => {
-      // standard overlap check
-      return (range.check_in < b.check_out && range.check_out > b.check_in);
-    });
+    return bookedDates.some(b => (range.check_in < b.check_out && range.check_out > b.check_in));
   };
 
   const isOverlapping = hasOverlap();
 
-  const nights = range.check_in && range.check_out && !isOverlapping
+  const days = range.check_in && range.check_out && !isOverlapping
     ? Math.max(0, Math.ceil((new Date(range.check_out) - new Date(range.check_in)) / 86400000))
     : 0;
-  
-  // Calculate the split (Admin 5%, Owner 95%)
-  const subtotal = nights * p.price_per_night;
-  const serviceFee = Math.round(subtotal * 0.05 * 100) / 100; // Goes to Admin
-  const ownerRent = subtotal - serviceFee;                    // Goes to Owner
-  const total = subtotal + serviceFee;                        // Total customer pays
+
+  const months = days > 0 ? Math.max(1, Math.round(days / 30 * 10) / 10) : 0;
+
+  const subtotal = months * p.price_per_night;
+  const serviceFee = Math.round(subtotal * 0.05 * 100) / 100;
+  const total = subtotal + serviceFee;
 
   const book = async () => {
     setErr('');
@@ -67,7 +62,6 @@ export default function PropertyDetail() {
         check_out: range.check_out,
         guests: Number(range.guests)
       });
-      
       nav(`/checkout/${r.data.booking.id}`);
     } catch (e) {
       setErr(e.response?.data?.error || 'Booking failed.');
@@ -81,9 +75,7 @@ export default function PropertyDetail() {
     try {
       await api.post('/messages', { receiver_id: p.owner_id, content: text, property_id: p.id });
       nav(`/chat/${p.owner_id}`);
-    } catch (e) {
-      alert('Failed to send message');
-    }
+    } catch (e) { alert('Failed to send message'); }
   };
 
   return (
@@ -101,7 +93,6 @@ export default function PropertyDetail() {
         <div>
           <h1>{p.title}</h1>
           <p className="muted">📍 {p.address}, {p.neighborhood}, {p.city}</p>
-          
           <div className="chips" style={{ marginTop: 16 }}>
             <span className="chip">🛏 {p.bedrooms} bedrooms</span>
             <span className="chip">🛁 {p.bathrooms} bathrooms</span>
@@ -116,52 +107,50 @@ export default function PropertyDetail() {
           <div className="chips">
             {p.amenities.map(a => <span key={a} className="chip">{a}</span>)}
           </div>
+
+          <h3 style={{ marginTop: 24 }}>House Rules</h3>
+          <div className="chips">
+            {p.rules && p.rules.length > 0 ? p.rules.map(r => <span key={r} className="chip">{r}</span>) : <span className="muted">No specific rules provided.</span>}
+          </div>
         </div>
 
         <aside className="booking-box">
-          <div className="price">${p.price_per_night} <span className="muted">/ night</span></div>
-          
-          {/* Show already booked dates */}
+          <div className="price">ETB {p.price_per_night?.toLocaleString()} <span className="muted">/ month</span></div>
+
           {bookedDates.length > 0 && (
             <div style={{ background: '#fee2e2', padding: '10px', borderRadius: '8px', marginBottom: '15px', fontSize: '13px' }}>
               <b>Booked Dates (Unavailable):</b>
               <ul style={{ paddingLeft: '20px', marginTop: '5px' }}>
-                {bookedDates.map((b, i) => (
-                  <li key={i}>{b.check_in} to {b.check_out}</li>
-                ))}
+                {bookedDates.map((b, i) => <li key={i}>{b.check_in} to {b.check_out}</li>)}
               </ul>
             </div>
           )}
 
           {err && <div className="error">{err}</div>}
-          {isOverlapping && (
-            <div className="error" style={{ fontWeight: 600 }}>
-              ⚠️ The house is taken up to your selected dates. Please select other dates or find another house.
-            </div>
-          )}
-          
+          {isOverlapping && <div className="error" style={{ fontWeight: 600 }}>⚠️ The house is taken up to your selected dates. Please select other dates or find another house.</div>}
+
           <label>Check-in</label>
           <input type="date" value={range.check_in} onChange={e => setRange({ ...range, check_in: e.target.value })} />
-          
+
           <label>Check-out</label>
           <input type="date" value={range.check_out} onChange={e => setRange({ ...range, check_out: e.target.value })} />
-          
+
           <label>Guests</label>
           <input type="number" min="1" max={p.max_guests} value={range.guests} onChange={e => setRange({ ...range, guests: e.target.value })} />
 
-          {nights > 0 && (
+          {months > 0 && (
             <div className="breakdown" style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span>Rent ({nights} nights)</span>
-                <span>${ownerRent.toFixed(2)}</span>
+                <span>ETB {p.price_per_night?.toLocaleString()} × {months} months</span>
+                <span>ETB {subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#8b93a5', fontSize: 13 }}>
                 <span>Service fee (5%)</span>
-                <span>${serviceFee.toFixed(2)}</span>
+                <span>ETB {serviceFee.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="total" style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid #e5e8ee', fontWeight: 700 }}>
                 <span>Total to pay</span>
-                <span>${total.toFixed(2)}</span>
+                <span>ETB {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
           )}
@@ -169,10 +158,8 @@ export default function PropertyDetail() {
           <button className="btn-primary full" style={{ marginTop: 16 }} onClick={book} disabled={user?.role !== 'customer' || isOverlapping}>
             {user?.role === 'customer' ? 'Book now & Pay' : 'Owners cannot book'}
           </button>
-          
-          <button className="btn-ghost full" style={{ marginTop: 8 }} onClick={contact}>
-            💬 Message owner
-          </button>
+
+          <button className="btn-ghost full" style={{ marginTop: 8 }} onClick={contact}>💬 Message owner</button>
         </aside>
       </div>
     </div>
