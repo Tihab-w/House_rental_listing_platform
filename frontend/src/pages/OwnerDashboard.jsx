@@ -26,32 +26,22 @@ export default function OwnerDashboard() {
       setMyProps(p.data);
     } catch (e) {
       console.error('Dashboard load failed', e);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      await Promise.resolve();
-      if (!cancelled) load();
-    })();
+    (async () => { await Promise.resolve(); if (!cancelled) load(); })();
     return () => { cancelled = true; };
   }, [socketReady, load]);
 
   const addClean = async () => {
-    if (!newClean.property_id || !newClean.date) {
-      alert('Pick a property and date');
-      return;
-    }
+    if (!newClean.property_id || !newClean.date) return alert('Pick a property and date');
     try {
       await api.post('/cleaning', newClean);
       setNewClean({ property_id: '', date: '', notes: '' });
       load();
-    } catch (e) {
-      alert(e.response?.data?.error || 'Failed to schedule');
-    }
+    } catch (e) { alert(e.response?.data?.error || 'Failed to schedule'); }
   };
 
   const markCleanDone = async (id) => {
@@ -63,29 +53,17 @@ export default function OwnerDashboard() {
   if (!stats) return <p className="error">Could not load dashboard.</p>;
 
   return (
-    <div>
+    <div className="container section">
       <div className="row-between">
         <h1>Owner Dashboard</h1>
         <Link to="/owner/properties/new" className="btn-primary">+ Add property</Link>
       </div>
 
       <div className="kpi-grid">
-        <div className="kpi">
-          <div className="kpi-label">Total Revenue</div>
-          <div className="kpi-value">${stats.totalRevenue.toFixed(0)}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Bookings</div>
-          <div className="kpi-value">{stats.totalBookings}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Occupancy (90d)</div>
-          <div className="kpi-value">{stats.occupancyRate}%</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Avg stay</div>
-          <div className="kpi-value">{stats.avgStay} n</div>
-        </div>
+        <div className="kpi"><div className="kpi-label">Total Revenue</div><div className="kpi-value">ETB {stats.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div></div>
+        <div className="kpi"><div className="kpi-label">Bookings</div><div className="kpi-value">{stats.totalBookings}</div></div>
+        <div className="kpi"><div className="kpi-label">Occupancy (90d)</div><div className="kpi-value">{stats.occupancyRate}%</div></div>
+        <div className="kpi"><div className="kpi-label">Avg stay</div><div className="kpi-value">{stats.avgStay} n</div></div>
       </div>
 
       <div className="dash-grid">
@@ -98,14 +76,10 @@ export default function OwnerDashboard() {
           {bookings.slice(0, 5).map(b => (
             <div key={b.id} className="mini-row">
               <div><b>{b.title}</b> — {b.customer_name}</div>
-              <div className="muted">
-                {b.check_in} → {b.check_out} • ${b.total_price}
-              </div>
+              <div className="muted">{b.check_in} → {b.check_out} • ETB {b.total_price?.toLocaleString()}</div>
               <div>
                 <span className={`status ${b.status}`}>{b.status}</span>{' '}
-                {b.payment_status && (
-                  <span className={`status ${b.payment_status}`}>{b.payment_status}</span>
-                )}
+                {b.payment_status && <span className={`status ${b.payment_status}`}>{b.payment_status}</span>}
               </div>
             </div>
           ))}
@@ -114,39 +88,20 @@ export default function OwnerDashboard() {
         <div className="panel">
           <h3>Cleaning schedule</h3>
           <div className="clean-form">
-            <select
-              value={newClean.property_id}
-              onChange={e => setNewClean({ ...newClean, property_id: e.target.value })}
-            >
+            <select value={newClean.property_id} onChange={e => setNewClean({ ...newClean, property_id: e.target.value })}>
               <option value="">Select property…</option>
-              {myProps.map(p => (
-                <option key={p.id} value={p.id}>{p.title}</option>
-              ))}
+              {myProps.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
             </select>
-            <input
-              type="date"
-              value={newClean.date}
-              onChange={e => setNewClean({ ...newClean, date: e.target.value })}
-            />
-            <input
-              placeholder="Notes (optional)"
-              value={newClean.notes}
-              onChange={e => setNewClean({ ...newClean, notes: e.target.value })}
-            />
+            <input type="date" value={newClean.date} onChange={e => setNewClean({ ...newClean, date: e.target.value })} />
+            <input placeholder="Notes (optional)" value={newClean.notes} onChange={e => setNewClean({ ...newClean, notes: e.target.value })} />
             <button className="btn-primary" onClick={addClean}>Schedule</button>
           </div>
-
           {cleaning.length === 0 && <p className="muted">No cleaning tasks scheduled.</p>}
-
           {cleaning.slice(0, 8).map(c => (
             <div key={c.id} className="mini-row">
               <div><b>{c.title}</b></div>
               <div className="muted">{c.date} • {c.status}</div>
-              {c.status === 'scheduled' && (
-                <button className="btn-ghost small" onClick={() => markCleanDone(c.id)}>
-                  Mark done
-                </button>
-              )}
+              {c.status === 'scheduled' && <button className="btn-ghost small" onClick={() => markCleanDone(c.id)}>Mark done</button>}
             </div>
           ))}
         </div>
