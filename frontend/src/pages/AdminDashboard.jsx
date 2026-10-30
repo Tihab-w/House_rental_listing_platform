@@ -20,9 +20,7 @@ export default function AdminDashboard() {
       ]);
       setStats(s.data); setUsers(u.data); setProps(p.data);
       setBookings(b.data); setFees(f.data);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   useEffect(() => { load(); }, []);
@@ -47,9 +45,9 @@ export default function AdminDashboard() {
       </div>
 
       <div className="kpi-grid">
-        <div className="kpi"><div className="kpi-label">Total Revenue</div><div className="kpi-value">${stats.totalRevenue.toFixed(0)}</div></div>
-        <div className="kpi"><div className="kpi-label">Owner Fees</div><div className="kpi-value">${stats.ownerFees.toFixed(0)}</div></div>
-        <div className="kpi"><div className="kpi-label">Customer Fees</div><div className="kpi-value">${stats.customerFees.toFixed(0)}</div></div>
+        <div className="kpi"><div className="kpi-label">Total Revenue (ETB)</div><div className="kpi-value">ETB {stats.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div></div>
+        <div className="kpi"><div className="kpi-label">Owner Fees</div><div className="kpi-value">ETB {stats.ownerFees.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div></div>
+        <div className="kpi"><div className="kpi-label">Customer Fees</div><div className="kpi-value">ETB {stats.customerFees.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div></div>
         <div className="kpi"><div className="kpi-label">Pending</div><div className="kpi-value">{stats.pendingFees}</div></div>
       </div>
 
@@ -73,12 +71,12 @@ export default function AdminDashboard() {
             ))}
           </div>
           <div className="panel">
-            <h3>Monthly revenue</h3>
+            <h3>Monthly revenue (ETB)</h3>
             {stats.monthlyRevenue.length === 0 && <p className="muted">No revenue yet.</p>}
             {stats.monthlyRevenue.map(m => (
               <div key={m.month} className="mini-row">
                 <span>{m.month}</span>
-                <b style={{ float: 'right' }}>${m.amount.toFixed(0)}</b>
+                <b style={{ float: 'right' }}>ETB {m.amount.toLocaleString()}</b>
               </div>
             ))}
           </div>
@@ -101,7 +99,7 @@ export default function AdminDashboard() {
           <h3>All Properties</h3>
           {props.map(p => (
             <div key={p.id} className="mini-row">
-              <b>{p.title}</b> — {p.city} • ${p.price_per_night}/night • by {p.owner_name} • <span className={`status ${p.status === 'available' ? 'confirmed' : 'pending'}`}>{p.status}</span>
+              <b>{p.title}</b> — {p.city} • ETB {p.price_per_night?.toLocaleString()}/month • by {p.owner_name} • <span className={`status ${p.status === 'available' ? 'confirmed' : 'pending'}`}>{p.status}</span>
             </div>
           ))}
         </div>
@@ -113,9 +111,7 @@ export default function AdminDashboard() {
           {bookings.map(b => (
             <div key={b.id} className="mini-row">
               <b>#{b.id} {b.property_title}</b> — {b.customer_name} → {b.owner_name}
-              <div className="muted">
-                {b.check_in} → {b.check_out} • ${b.total_price} • <span className={`status ${b.status}`}>{b.status}</span>
-              </div>
+              <div className="muted">{b.check_in} → {b.check_out} • ETB {b.total_price?.toLocaleString()} • <span className={`status ${b.status}`}>{b.status}</span></div>
             </div>
           ))}
         </div>
@@ -126,11 +122,9 @@ export default function AdminDashboard() {
           <h3>Service Fees</h3>
           {fees.map(f => (
             <div key={f.id} className="mini-row">
-              <b>{f.username}</b> ({f.role}) — {f.amount} ETB • {f.method} • <span className={`status ${f.status}`}>{f.status}</span>
+              <b>{f.username}</b> ({f.role}) — ETB {f.amount.toLocaleString()} • {f.method} • <span className={`status ${f.status}`}>{f.status}</span>
               <div className="muted">Ref: {f.transaction_ref} • {new Date(f.created_at).toLocaleString()}</div>
-              {f.status === 'pending' && (
-                <button className="btn-primary" style={{ marginTop: 6 }} onClick={() => verifyFee(f.id)}>Verify</button>
-              )}
+              {f.status === 'pending' && <button className="btn-primary" style={{ marginTop: 6 }} onClick={() => verifyFee(f.id)}>Verify</button>}
             </div>
           ))}
         </div>
