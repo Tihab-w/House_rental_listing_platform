@@ -17,15 +17,13 @@ app.use(express.json({ limit: '2mb' }));
 app.use((req, _, next) => { req.io = io; next(); });
 
 // ============================================================
-// 1. FILE UPLOAD SETUP (Creates folder automatically)
+// 1. FILE UPLOAD SETUP
 // ============================================================
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
   console.log('📁 Created uploads directory');
 }
-
-// Serve the images to the frontend
 app.use('/uploads', express.static(uploadsDir));
 
 const storage = multer.diskStorage({
@@ -36,8 +34,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// The upload endpoint
-app.post('/api/upload', upload.array('images', 15), (req, res) => {
+app.post('/api/upload', upload.array('images', 5), (req, res) => {
   const urls = req.files.map(file => `http://localhost:5000/uploads/${file.filename}`);
   res.json({ urls });
 });
@@ -58,7 +55,7 @@ app.use('/api/admin',         require('./routes/admin'));
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 // ============================================================
-// 3. SOCKET.IO SETUP
+// 3. SOCKET.IO
 // ============================================================
 require('./sockets')(io);
 
