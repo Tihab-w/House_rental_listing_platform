@@ -12,7 +12,7 @@ function parse(p) {
   };
 }
 
-/* Smart search — returns closest matches, not exact */
+/* Search — only shows available properties */
 router.get('/', (req, res) => {
   const { city, min, max, guests, q } = req.query;
 
@@ -22,6 +22,7 @@ router.get('/', (req, res) => {
       (SELECT COUNT(*) FROM reviews WHERE property_id=p.id) AS review_count
     FROM properties p
     JOIN users u ON u.id=p.owner_id
+    WHERE p.status = 'available'
     ORDER BY p.created_at DESC
   `).all();
 
@@ -52,7 +53,7 @@ router.get('/', (req, res) => {
       if (price >= nMin && price <= nMax) { score += 40; why.price = 'in-range'; }
       else {
         const distance = price < nMin ? nMin - price : price - nMax;
-        score += Math.max(0, 30 - distance);
+        score += Math.max(0, 30 - distance / 1000); // adjust for Birr scale
         why.price = 'near';
       }
     }
@@ -100,14 +101,13 @@ router.post('/', auth(), requireRole('owner'), (req, res) => {
   if (!b.description || b.description.trim().length < 30) {
     return res.status(400).json({ error: 'Description must be at least 30 characters' });
   }
-  if (!Array.isArray(b.images) || b.images.length < 10) {
-    return res.status(400).json({ error: 'At least 10 images required' });
+  if (!Array.isArray(b.images) || b.images.length < 5) {
+    return res.status(400).json({ error: 'At least 5 images required' });
   }
   if (!b.payment_method || !['card','paypal','bank_transfer'].includes(b.payment_method)) {
     return res.status(400).json({ error: 'Payment method required' });
   }
 
-  // Owner service fee: 100 ETB flat per listing
   const OWNER_FEE = 100;
   const paidNow = b.payment_method === 'card' || b.payment_method === 'paypal';
   const feeStatus = paidNow ? 'paid' : 'pending';
@@ -115,12 +115,11 @@ router.post('/', auth(), requireRole('owner'), (req, res) => {
 
   const info = db.prepare(`INSERT INTO properties
     (owner_id,title,description,property_type,address,city,neighborhood,country,
-     lat,lng,price_per_night,bedrooms,bathrooms,max_guests,area_sqft,floor_number,
+     price_per_night,bedrooms,bathrooms,max_guests,area_sqft,floor_number,
      year_built,furnished,amenities,rules,images,contact_phone,status)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
     req.user.id, b.title, b.description || '', b.property_type || 'apartment',
     b.address || '', b.city, b.neighborhood || '', b.country || '',
-    0, 0,
     Number(b.price_per_night),
     Number(b.bedrooms) || 1, Number(b.bathrooms) || 1, Number(b.max_guests) || 2,
     Number(b.area_sqft) || 500,
@@ -136,13 +135,11 @@ router.post('/', auth(), requireRole('owner'), (req, res) => {
 
   const propertyId = info.lastInsertRowid;
 
-  // Record owner service fee
   db.prepare(`INSERT INTO service_fees (user_id,property_id,role,amount,method,status,transaction_ref)
     VALUES (?,?,?,?,?,?,?)`).run(
     req.user.id, propertyId, 'owner', OWNER_FEE, b.payment_method, feeStatus, txRef
   );
 
-  // Notify admins
   const admins = db.prepare("SELECT id FROM users WHERE role='admin'").all();
   admins.forEach(a => {
     db.prepare(`INSERT INTO notifications (user_id,type,title,body,link) VALUES (?,?,?,?,?)`).run(
@@ -164,17 +161,17 @@ router.put('/:id', auth(), requireRole('owner'), (req, res) => {
   if (p.owner_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
 
   const b = req.body;
-  if (!Array.isArray(b.images) || b.images.length < 10)
-    return res.status(400).json({ error: 'At least 10 images required' });
+  if (!Array.isArray(b.images) || b.images.length < 5)
+    return res.status(400).json({ error: 'At least 5 images required' });
 
   db.prepare(`UPDATE properties SET
     title=?, description=?, property_type=?, address=?, city=?, neighborhood=?, country=?,
-    lat=?, lng=?, price_per_night=?, bedrooms=?, bathrooms=?, max_guests=?, area_sqft=?,
+    price_per_night=?, bedrooms=?, bathrooms=?, max_guests=?, area_sqft=?,
     floor_number=?, year_built=?, furnished=?, amenities=?, rules=?, images=?, contact_phone=?
     WHERE id=?`).run(
     b.title, b.description, b.property_type, b.address, b.city, b.neighborhood, b.country,
-    Number(b.lat), Number(b.lng), Number(b.price_per_night), Number(b.bedrooms),
-    Number(b.bathrooms), Number(b.max_guests), Number(b.area_sqft),
+    Number(b.price_per_night), Number(b.bedrooms), Number(b.bathrooms),
+    Number(b.max_guests), Number(b.area_sqft),
     b.floor_number ? Number(b.floor_number) : null,
     b.year_built ? Number(b.year_built) : null,
     b.furnished, JSON.stringify(b.amenities || []),
