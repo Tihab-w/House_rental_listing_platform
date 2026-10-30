@@ -29,10 +29,8 @@ export default function OwnerBookings() {
             <h3>{b.title}</h3>
             <p className="muted">Customer: {b.customer_name} ({b.customer_email})</p>
             <p className="muted">{b.check_in} → {b.check_out} • {b.guests} guests</p>
-            <p>Total: <b>${b.total_price}</b> • <span className={`status ${b.status}`}>{b.status}</span></p>
-            {b.payment_method && (
-              <p>Payment: <span className={`status ${b.payment_status}`}>{b.payment_status}</span> ({b.payment_method})</p>
-            )}
+            <p>Total: <b>ETB {b.total_price?.toLocaleString()}</b> · <span className={`status ${b.status}`}>{b.status}</span></p>
+            {b.payment_method && <p>Payment: <span className={`status ${b.payment_status}`}>{b.payment_status}</span> ({b.payment_method})</p>}
           </div>
           <div className="booking-actions">
             {b.status === 'pending' && (
@@ -41,9 +39,7 @@ export default function OwnerBookings() {
                 <button className="btn-ghost" onClick={() => update(b.id, 'declined')}>Decline</button>
               </>
             )}
-            {b.status === 'confirmed' && (
-              <button className="btn-ghost" onClick={() => update(b.id, 'completed')}>Mark completed</button>
-            )}
+            {b.status === 'confirmed' && <button className="btn-ghost" onClick={() => update(b.id, 'completed')}>Mark completed</button>}
             {b.payment_status === 'pending' && b.payment_method === 'bank_transfer' && b.payment_id && (
               <button className="btn-primary" onClick={() => verify(b.payment_id)}>Verify payment</button>
             )}
