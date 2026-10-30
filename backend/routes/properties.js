@@ -12,10 +12,16 @@ function parse(p) {
   };
 }
 
-/* Search — only shows available properties */
+// Helper to validate numbers
+function isValidNum(val, { min = 0, integer = false } = {}) {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return false;
+  if (integer && !Number.isInteger(n)) return false;
+  return n >= min;
+}
+
 router.get('/', (req, res) => {
   const { city, min, max, guests, q } = req.query;
-
   const all = db.prepare(`
     SELECT p.*, u.username AS owner_name,
       (SELECT AVG(rating) FROM reviews WHERE property_id=p.id) AS avg_rating,
@@ -32,20 +38,16 @@ router.get('/', (req, res) => {
   const scored = all.map(p => {
     let score = 0;
     const why = {};
-
     if (city && city.trim()) {
       const c = city.toLowerCase().trim();
       if (p.city && p.city.toLowerCase().includes(c)) { score += 50; why.city = 'exact'; }
       else if (p.country && p.country.toLowerCase().includes(c)) { score += 20; why.city = 'country'; }
     }
-
     if (q && q.trim()) {
       const qq = q.toLowerCase().trim();
-      const haystack = [p.title, p.description, p.neighborhood, p.city]
-        .filter(Boolean).join(' ').toLowerCase();
+      const haystack = [p.title, p.description, p.neighborhood, p.city].filter(Boolean).join(' ').toLowerCase();
       if (haystack.includes(qq)) { score += 30; why.text = 'yes'; }
     }
-
     if (min || max) {
       const price = p.price_per_night;
       const nMin = min ? Number(min) : 0;
@@ -53,17 +55,15 @@ router.get('/', (req, res) => {
       if (price >= nMin && price <= nMax) { score += 40; why.price = 'in-range'; }
       else {
         const distance = price < nMin ? nMin - price : price - nMax;
-        score += Math.max(0, 30 - distance / 1000); // adjust for Birr scale
+        score += Math.max(0, 30 - distance / 1000);
         why.price = 'near';
       }
     }
-
     if (guests) {
       const g = Number(guests);
       if (p.max_guests >= g) { score += 30; why.guests = 'ok'; }
       else score += Math.max(0, 10 - (g - p.max_guests) * 2);
     }
-
     return { ...parse(p), _score: score, _why: why };
   });
 
@@ -72,8 +72,7 @@ router.get('/', (req, res) => {
 });
 
 router.get('/mine', auth(), requireRole('owner'), (req, res) => {
-  const rows = db.prepare('SELECT * FROM properties WHERE owner_id=? ORDER BY created_at DESC')
-    .all(req.user.id).map(parse);
+  const rows = db.prepare('SELECT * FROM properties WHERE owner_id=? ORDER BY created_at DESC').all(req.user.id).map(parse);
   res.json(rows);
 });
 
@@ -85,8 +84,7 @@ router.get('/:id', (req, res) => {
   const booked = db.prepare(`SELECT check_in, check_out FROM bookings
     WHERE property_id=? AND status IN ('pending','confirmed')`).all(req.params.id);
   const reviews = db.prepare(`SELECT r.*, u.username FROM reviews r
-    JOIN users u ON u.id=r.customer_id WHERE r.property_id=? ORDER BY r.created_at DESC`)
-    .all(req.params.id);
+    JOIN users u ON u.id=r.customer_id WHERE r.property_id=? ORDER BY r.created_at DESC`).all(req.params.id);
 
   res.json({ ...parse(row), bookedRanges: booked, reviews });
 });
@@ -97,10 +95,27 @@ router.post('/', auth(), requireRole('owner'), (req, res) => {
   if (!b.title || !b.title.trim()) return res.status(400).json({ error: 'Title required' });
   if (!b.city || !b.city.trim()) return res.status(400).json({ error: 'City required' });
   if (!b.neighborhood || !b.neighborhood.trim()) return res.status(400).json({ error: 'Neighborhood required' });
-  if (!b.price_per_night || b.price_per_night <= 0) return res.status(400).json({ error: 'Invalid price' });
-  if (!b.description || b.description.trim().length < 30) {
-    return res.status(400).json({ error: 'Description must be at least 30 characters' });
+  if (!b.description || b.description.trim().length < 30) return res.status(400).json({ error: 'Description must be at least 30 characters' });
+
+  // ----- STRICT NUMBER VALIDATION -----
+  if (!isValidNum(b.price_per_night, { min: 1 })) return res.status(400).json({ error: 'Price must be a positive number' });
+  if (!isValidNum(b.bedrooms, { min: 1, integer: true })) return res.status(400).json({ error: 'Bedrooms must be ≥ 1 (integer)' });
+  if (!isValidNum(b.bathrooms, { min: 1 })) return res.status(400).json({ error: 'Bathrooms must be ≥ 1' });
+  if (!isValidNum(b.max_guests, { min: 1, integer: true })) return res.status(400).json({ error: 'Max guests must be ≥ 1 (integer)' });
+  if (!isValidNum(b.area_sqft, { min: 1 })) return res.status(400).json({ error: 'Area must be positive' });
+
+  if (b.floor_number !== null && b.floor_number !== undefined && b.floor_number !== '') {
+    if (!isValidNum(b.floor_number, { min: 0, integer: true })) return res.status(400).json({ error: 'Floor number cannot be negative' });
   }
+
+  if (b.year_built !== null && b.year_built !== undefined && b.year_built !== '') {
+    const year = Number(b.year_built);
+    const currentYear = new Date().getFullYear();
+    if (!Number.isInteger(year) || year < 1800 || year > currentYear) {
+      return res.status(400).json({ error: `Year built must be between 1800 and ${currentYear}` });
+    }
+  }
+
   if (!Array.isArray(b.images) || b.images.length < 5) {
     return res.status(400).json({ error: 'At least 5 images required' });
   }
@@ -121,10 +136,10 @@ router.post('/', auth(), requireRole('owner'), (req, res) => {
     req.user.id, b.title, b.description || '', b.property_type || 'apartment',
     b.address || '', b.city, b.neighborhood || '', b.country || '',
     Number(b.price_per_night),
-    Number(b.bedrooms) || 1, Number(b.bathrooms) || 1, Number(b.max_guests) || 2,
-    Number(b.area_sqft) || 500,
-    b.floor_number ? Number(b.floor_number) : null,
-    b.year_built ? Number(b.year_built) : null,
+    Number(b.bedrooms), Number(b.bathrooms), Number(b.max_guests),
+    Number(b.area_sqft),
+    b.floor_number !== '' && b.floor_number !== null ? Number(b.floor_number) : null,
+    b.year_built !== '' && b.year_built !== null ? Number(b.year_built) : null,
     b.furnished || 'unfurnished',
     JSON.stringify(b.amenities || []),
     JSON.stringify(b.rules || []),
@@ -143,10 +158,7 @@ router.post('/', auth(), requireRole('owner'), (req, res) => {
   const admins = db.prepare("SELECT id FROM users WHERE role='admin'").all();
   admins.forEach(a => {
     db.prepare(`INSERT INTO notifications (user_id,type,title,body,link) VALUES (?,?,?,?,?)`).run(
-      a.id, 'revenue',
-      `🏠 Owner listing fee: ${OWNER_FEE} ETB`,
-      `${b.title} • ${b.payment_method}`,
-      '/admin'
+      a.id, 'revenue', `🏠 Owner listing fee: ${OWNER_FEE} ETB`, `${b.title} • ${b.payment_method}`, '/admin'
     );
     const n = db.prepare('SELECT * FROM notifications WHERE id=last_insert_rowid()').get();
     req.io.to(`user_${a.id}`).emit('notification', n);
@@ -161,8 +173,13 @@ router.put('/:id', auth(), requireRole('owner'), (req, res) => {
   if (p.owner_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
 
   const b = req.body;
-  if (!Array.isArray(b.images) || b.images.length < 5)
-    return res.status(400).json({ error: 'At least 5 images required' });
+  if (!Array.isArray(b.images) || b.images.length < 5) return res.status(400).json({ error: 'At least 5 images required' });
+
+  if (!isValidNum(b.price_per_night, { min: 1 })) return res.status(400).json({ error: 'Price must be positive' });
+  if (!isValidNum(b.bedrooms, { min: 1, integer: true })) return res.status(400).json({ error: 'Bedrooms must be ≥ 1' });
+  if (!isValidNum(b.bathrooms, { min: 1 })) return res.status(400).json({ error: 'Bathrooms must be ≥ 1' });
+  if (!isValidNum(b.max_guests, { min: 1, integer: true })) return res.status(400).json({ error: 'Max guests must be ≥ 1' });
+  if (!isValidNum(b.area_sqft, { min: 1 })) return res.status(400).json({ error: 'Area must be positive' });
 
   db.prepare(`UPDATE properties SET
     title=?, description=?, property_type=?, address=?, city=?, neighborhood=?, country=?,
@@ -172,8 +189,8 @@ router.put('/:id', auth(), requireRole('owner'), (req, res) => {
     b.title, b.description, b.property_type, b.address, b.city, b.neighborhood, b.country,
     Number(b.price_per_night), Number(b.bedrooms), Number(b.bathrooms),
     Number(b.max_guests), Number(b.area_sqft),
-    b.floor_number ? Number(b.floor_number) : null,
-    b.year_built ? Number(b.year_built) : null,
+    b.floor_number !== '' && b.floor_number !== null ? Number(b.floor_number) : null,
+    b.year_built !== '' && b.year_built !== null ? Number(b.year_built) : null,
     b.furnished, JSON.stringify(b.amenities || []),
     JSON.stringify(b.rules || []), JSON.stringify(b.images || []),
     b.contact_phone || '', req.params.id
@@ -191,11 +208,9 @@ router.delete('/:id', auth(), requireRole('owner'), (req, res) => {
 
 router.post('/:id/reviews', auth(), (req, res) => {
   const { rating, comment } = req.body;
-  const done = db.prepare(`SELECT 1 FROM bookings WHERE property_id=? AND customer_id=?
-    AND status='completed'`).get(req.params.id, req.user.id);
+  const done = db.prepare(`SELECT 1 FROM bookings WHERE property_id=? AND customer_id=? AND status='completed'`).get(req.params.id, req.user.id);
   if (!done) return res.status(403).json({ error: 'You must complete a stay first' });
-  db.prepare('INSERT INTO reviews (property_id,customer_id,rating,comment) VALUES (?,?,?,?)')
-    .run(req.params.id, req.user.id, rating, comment || '');
+  db.prepare('INSERT INTO reviews (property_id,customer_id,rating,comment) VALUES (?,?,?,?)').run(req.params.id, req.user.id, rating, comment || '');
   res.json({ ok: true });
 });
 
