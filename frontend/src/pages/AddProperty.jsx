@@ -10,7 +10,7 @@ const empty = {
   city: '',
   neighborhood: '',
   country: 'Ethiopia',
-  price_per_night: 50,
+  price_per_night: 15000, // defaults to 15,000 ETB per month
   bedrooms: 1,
   bathrooms: 1,
   max_guests: 2,
@@ -21,26 +21,13 @@ const empty = {
   contact_phone: '',
   amenities: [],
   rules: [],
-  images: Array(10).fill('') // start with 10 slots
+  images: [] // uploaded URLs
 };
 
-const AMENITIES = [
-  'WiFi', 'Kitchen', 'Parking', 'Air Conditioning', 'Pool', 'Gym',
-  'Garden', 'Lake View', 'TV', 'Washer', 'Heating', 'Pet Friendly',
-  'Elevator', 'Balcony', 'Security', 'Backup Generator', 'Water Tank',
-  'Furnished Kitchen', 'Washing Machine', 'Dryer'
-];
-
-const RULES = [
-  'No smoking', 'No pets', 'No parties', 'Quiet hours after 10pm',
-  'No overnight guests', 'ID required at check-in'
-];
-
-const PROPERTY_TYPES = [
-  'apartment', 'house', 'villa', 'studio', 'condo', 'townhouse', 'room'
-];
-
-const LISTING_FEE = 100; // ETB
+const AMENITIES = ['WiFi','Kitchen','Parking','Air Conditioning','Pool','Gym','Garden','Lake View','TV','Washer','Heating','Pet Friendly','Elevator','Balcony','Security','Backup Generator','Water Tank'];
+const RULES = ['No smoking','No pets','No parties','Quiet hours after 10pm','No overnight guests','ID required at check-in'];
+const PROPERTY_TYPES = ['apartment','house','villa','studio','condo','townhouse','room'];
+const LISTING_FEE = 100;
 
 export default function AddProperty() {
   const { id } = useParams();
@@ -48,8 +35,8 @@ export default function AddProperty() {
   const [form, setForm] = useState(empty);
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
-  // Payment state
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [card, setCard] = useState({ number: '', name: '', exp: '', cvc: '' });
 
@@ -65,7 +52,7 @@ export default function AddProperty() {
         city: p.city || '',
         neighborhood: p.neighborhood || '',
         country: p.country || 'Ethiopia',
-        price_per_night: p.price_per_night || 50,
+        price_per_night: p.price_per_night || 15000,
         bedrooms: p.bedrooms || 1,
         bathrooms: p.bathrooms || 1,
         max_guests: p.max_guests || 2,
@@ -76,9 +63,7 @@ export default function AddProperty() {
         contact_phone: p.contact_phone || '',
         amenities: p.amenities || [],
         rules: p.rules || [],
-        images: p.images && p.images.length >= 10
-          ? p.images
-          : [...p.images, ...Array(10 - p.images.length).fill('')]
+        images: p.images || []
       });
     }).catch(e => setErr(e.response?.data?.error || 'Failed to load'));
   }, [id]);
@@ -88,29 +73,33 @@ export default function AddProperty() {
   const toggleArray = (key, value) => {
     setForm(prev => ({
       ...prev,
-      [key]: prev[key].includes(value)
-        ? prev[key].filter(x => x !== value)
-        : [...prev[key], value]
+      [key]: prev[key].includes(value) ? prev[key].filter(x => x !== value) : [...prev[key], value]
     }));
   };
 
-  const setImage = (i, v) => {
-    setForm(prev => {
-      const copy = [...prev.images];
-      copy[i] = v;
-      return { ...prev, images: copy };
-    });
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    if (form.images.length + files.length > 10) {
+      return setErr('You can upload a maximum of 10 images.');
+    }
+    setUploading(true);
+    setErr('');
+    const formData = new FormData();
+    files.forEach(file => formData.append('images', file));
+    try {
+      const res = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setForm(prev => ({ ...prev, images: [...prev.images, ...res.data.urls] }));
+    } catch (e) {
+      setErr('Failed to upload images. Please try again.');
+    } finally {
+      setUploading(false);
+      e.target.value = null;
+    }
   };
 
-  const addImageSlot = () => {
-    setForm(prev => ({ ...prev, images: [...prev.images, ''] }));
-  };
-
-  const removeImageSlot = (i) => {
-    setForm(prev => ({
-      ...prev,
-      images: prev.images.filter((_, idx) => idx !== i)
-    }));
+  const removeImage = (indexToRemove) => {
+    setForm(prev => ({ ...prev, images: prev.images.filter((_, idx) => idx !== indexToRemove) }));
   };
 
   const validateCard = () => {
@@ -126,21 +115,13 @@ export default function AddProperty() {
   const submit = async (e) => {
     e.preventDefault();
     setErr('');
-
     if (!form.title.trim()) return setErr('Title is required');
     if (!form.city.trim()) return setErr('City is required');
     if (!form.neighborhood.trim()) return setErr('Neighborhood is required');
     if (Number(form.price_per_night) <= 0) return setErr('Price must be > 0');
-    if (form.description.trim().length < 30) {
-      return setErr('Please write at least 30 characters in the description');
-    }
+    if (form.description.trim().length < 30) return setErr('Please write at least 30 characters in the description');
+    if (form.images.length < 5) return setErr(`At least 5 images required. You have ${form.images.length}.`);
 
-    const cleanImages = form.images.map(s => s.trim()).filter(Boolean);
-    if (cleanImages.length < 10) {
-      return setErr(`At least 10 images required. You have ${cleanImages.length}.`);
-    }
-
-    // Validate payment only for new listings
     if (!id && paymentMethod === 'card') {
       const v = validateCard();
       if (v) return setErr('Payment error: ' + v);
@@ -155,8 +136,7 @@ export default function AddProperty() {
       area_sqft: Number(form.area_sqft),
       floor_number: form.floor_number ? Number(form.floor_number) : null,
       year_built: form.year_built ? Number(form.year_built) : null,
-      images: cleanImages,
-      payment_method: paymentMethod // Send method to backend
+      payment_method: paymentMethod
     };
 
     setSaving(true);
@@ -167,44 +147,27 @@ export default function AddProperty() {
       } else {
         const r = await api.post('/properties', payload);
         if (r.data && r.data.paid === false) {
-          alert(`✅ Listing submitted!\n\nYour bank transfer of ${LISTING_FEE} ETB is pending.\nAdmin will verify it and your listing will go live shortly.`);
+          alert(`✅ Listing submitted!\n\nYour bank transfer of ${LISTING_FEE} ETB is pending. Admin will verify it shortly.`);
         }
         nav('/owner/properties');
       }
     } catch (e) {
       setErr(e.response?.data?.error || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
-
-  const filledImages = form.images.filter(s => s.trim()).length;
 
   return (
     <div className="auth-card wide">
       <h2>{id ? 'Edit' : 'Add'} Property</h2>
-      <p className="muted" style={{ marginBottom: 20 }}>
-        Fill in full details. At least 10 images are required.
-      </p>
-
       {err && <div className="error">{err}</div>}
-
-      {form.images.find(s => s.trim()) && (
-        <img
-          src={form.images.find(s => s.trim())}
-          alt="preview"
-          style={{ width: '100%', height: 220, objectFit: 'cover', borderRadius: 12, marginBottom: 20 }}
-          onError={e => { e.target.style.display = 'none'; }}
-        />
-      )}
 
       <form onSubmit={submit}>
         <h3 style={{ marginTop: 10 }}>Basic Info</h3>
         <label>Title *</label>
-        <input value={form.title} onChange={e => setField('title', e.target.value)} placeholder="Spacious 2BR Apartment in Bole" required />
+        <input value={form.title} onChange={e => setField('title', e.target.value)} required />
 
         <label>Description * (min 30 chars)</label>
-        <textarea rows="4" value={form.description} onChange={e => setField('description', e.target.value)} placeholder="Describe the space, neighborhood, nearby attractions…" />
+        <textarea rows="4" value={form.description} onChange={e => setField('description', e.target.value)} />
 
         <div className="two">
           <div>
@@ -225,16 +188,16 @@ export default function AddProperty() {
 
         <h3 style={{ marginTop: 20 }}>Location</h3>
         <label>Address</label>
-        <input value={form.address} onChange={e => setField('address', e.target.value)} placeholder="Street, building…" />
+        <input value={form.address} onChange={e => setField('address', e.target.value)} />
 
         <div className="three">
           <div>
             <label>City *</label>
-            <input value={form.city} onChange={e => setField('city', e.target.value)} placeholder="Addis Ababa" required />
+            <input value={form.city} onChange={e => setField('city', e.target.value)} required />
           </div>
           <div>
             <label>Neighborhood *</label>
-            <input value={form.neighborhood} onChange={e => setField('neighborhood', e.target.value)} placeholder="Bole" required />
+            <input value={form.neighborhood} onChange={e => setField('neighborhood', e.target.value)} required />
           </div>
           <div>
             <label>Country</label>
@@ -244,151 +207,83 @@ export default function AddProperty() {
 
         <h3 style={{ marginTop: 20 }}>Details</h3>
         <div className="four">
-          <div>
-            <label>Price / night ($) *</label>
-            <input type="number" min="1" value={form.price_per_night} onChange={e => setField('price_per_night', e.target.value)} required />
-          </div>
-          <div>
-            <label>Bedrooms</label>
-            <input type="number" min="1" value={form.bedrooms} onChange={e => setField('bedrooms', e.target.value)} />
-          </div>
-          <div>
-            <label>Bathrooms</label>
-            <input type="number" min="1" value={form.bathrooms} onChange={e => setField('bathrooms', e.target.value)} />
-          </div>
-          <div>
-            <label>Max guests</label>
-            <input type="number" min="1" value={form.max_guests} onChange={e => setField('max_guests', e.target.value)} />
-          </div>
+          <div><label>Price / month (ETB) *</label><input type="number" min="1" value={form.price_per_night} onChange={e => setField('price_per_night', e.target.value)} required /></div>
+          <div><label>Bedrooms</label><input type="number" min="1" value={form.bedrooms} onChange={e => setField('bedrooms', e.target.value)} /></div>
+          <div><label>Bathrooms</label><input type="number" min="1" value={form.bathrooms} onChange={e => setField('bathrooms', e.target.value)} /></div>
+          <div><label>Max guests</label><input type="number" min="1" value={form.max_guests} onChange={e => setField('max_guests', e.target.value)} /></div>
         </div>
 
         <div className="four">
-          <div>
-            <label>Area (sq ft)</label>
-            <input type="number" min="50" value={form.area_sqft} onChange={e => setField('area_sqft', e.target.value)} />
-          </div>
-          <div>
-            <label>Floor number</label>
-            <input type="number" value={form.floor_number} onChange={e => setField('floor_number', e.target.value)} />
-          </div>
-          <div>
-            <label>Year built</label>
-            <input type="number" value={form.year_built} onChange={e => setField('year_built', e.target.value)} />
-          </div>
-          <div>
-            <label>Contact phone</label>
-            <input value={form.contact_phone} onChange={e => setField('contact_phone', e.target.value)} />
-          </div>
+          <div><label>Area (sq ft)</label><input type="number" min="50" value={form.area_sqft} onChange={e => setField('area_sqft', e.target.value)} /></div>
+          <div><label>Floor number</label><input type="number" value={form.floor_number} onChange={e => setField('floor_number', e.target.value)} /></div>
+          <div><label>Year built</label><input type="number" value={form.year_built} onChange={e => setField('year_built', e.target.value)} /></div>
+          <div><label>Contact phone (optional)</label><input value={form.contact_phone} onChange={e => setField('contact_phone', e.target.value)} /></div>
         </div>
 
         <h3 style={{ marginTop: 20 }}>Amenities</h3>
         <div className="chips">
-          {AMENITIES.map(a => (
-            <button type="button" key={a} className={`chip clickable ${form.amenities.includes(a) ? 'chip-active' : ''}`} onClick={() => toggleArray('amenities', a)}>
-              {a}
-            </button>
-          ))}
+          {AMENITIES.map(a => <button type="button" key={a} className={`chip clickable ${form.amenities.includes(a) ? 'chip-active' : ''}`} onClick={() => toggleArray('amenities', a)}>{a}</button>)}
         </div>
 
         <h3 style={{ marginTop: 20 }}>House Rules</h3>
         <div className="chips">
-          {RULES.map(r => (
-            <button type="button" key={r} className={`chip clickable ${form.rules.includes(r) ? 'chip-active' : ''}`} onClick={() => toggleArray('rules', r)}>
-              {r}
-            </button>
+          {RULES.map(r => <button type="button" key={r} className={`chip clickable ${form.rules.includes(r) ? 'chip-active' : ''}`} onClick={() => toggleArray('rules', r)}>{r}</button>)}
+        </div>
+
+        <h3 style={{ marginTop: 24 }}>
+          Photos — {form.images.length} uploaded
+          {form.images.length < 5 && <span style={{ color: '#dc2626' }}> (need {5 - form.images.length} more)</span>}
+        </h3>
+        <p className="muted small" style={{ marginBottom: 12 }}>Upload at least 5 photos. The first photo will be the cover image.</p>
+
+        <div style={{ border: '2px dashed #cbd5e1', padding: 20, borderRadius: 12, textAlign: 'center', marginBottom: 20 }}>
+          <input type="file" multiple accept="image/*" onChange={handleFileUpload} disabled={uploading} style={{ display: 'none' }} id="file-upload" />
+          <label htmlFor="file-upload" className="btn-primary" style={{ cursor: 'pointer', display: 'inline-block' }}>
+            {uploading ? 'Uploading...' : '📁 Choose Photos from Device'}
+          </label>
+        </div>
+
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }}>
+          {form.images.map((url, i) => (
+            <div key={i} style={{ position: 'relative', height: 100 }}>
+              <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
+              <button type="button" onClick={() => removeImage(i)} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(220, 38, 38, 0.9)', color: 'white', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+              {i === 0 && <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'var(--primary)', color: 'white', fontSize: 10, padding: '2px 6px', borderRadius: 4 }}>Cover</span>}
+            </div>
           ))}
         </div>
 
-        <h3 style={{ marginTop: 20 }}>
-          Images — {filledImages}/10 filled
-          {filledImages < 10 && <span style={{ color: '#dc2626' }}> (need {10 - filledImages} more)</span>}
-        </h3>
-        <p className="muted small" style={{ marginBottom: 8 }}>Paste direct image URLs. First image is the cover.</p>
-
-        {form.images.map((url, i) => (
-          <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <input value={url} onChange={e => setImage(i, e.target.value)} placeholder={`Image ${i + 1} URL`} />
-            {form.images.length > 10 && (
-              <button type="button" className="btn-ghost" onClick={() => removeImageSlot(i)}>✕</button>
-            )}
-          </div>
-        ))}
-
-        <button type="button" className="btn-ghost" onClick={addImageSlot} style={{ marginBottom: 16 }}>+ Add more images</button>
-
-        {/* --- LISTING FEE PAYMENT SECTION --- */}
         {!id && (
           <>
-            <h3 style={{ marginTop: 24 }}>Listing Fee</h3>
+            <h3 style={{ marginTop: 30 }}>Listing Fee</h3>
             <div className="panel" style={{ background: '#f7f8fa', border: '1px solid #e5e8ee', padding: 20 }}>
-              <p style={{ marginBottom: 14 }}>
-                A one-time <b>service fee of {LISTING_FEE} ETB</b> is charged when you post a property. Once paid (or verified by admin), your listing goes live.
-              </p>
-
+              <p style={{ marginBottom: 14 }}>A one-time fee of <b>{LISTING_FEE} ETB</b> is required to activate your listing.</p>
               <div className="pay-methods">
-                {[
-                  { id: 'card', label: '💳 Credit/Debit Card' },
-                  { id: 'paypal', label: '🅿 PayPal' },
-                  { id: 'bank_transfer', label: '🏦 Bank Transfer' }
-                ].map(m => (
+                {[{ id: 'card', label: '💳 Card' }, { id: 'paypal', label: '🅿 PayPal' }, { id: 'bank_transfer', label: '🏦 CBE Bank Transfer' }].map(m => (
                   <label key={m.id} className={`pay-option ${paymentMethod === m.id ? 'active' : ''}`}>
-                    <input type="radio" name="listingFeeMethod" checked={paymentMethod === m.id} onChange={() => setPaymentMethod(m.id)} />
+                    <input type="radio" name="feeMethod" checked={paymentMethod === m.id} onChange={() => setPaymentMethod(m.id)} />
                     {m.label}
                   </label>
                 ))}
               </div>
-
               {paymentMethod === 'card' && (
                 <div className="card-form">
-                  <label>Card Number</label>
-                  <input placeholder="4242 4242 4242 4242" value={card.number} onChange={e => setCard({ ...card, number: e.target.value })} />
-                  <label>Cardholder Name</label>
-                  <input value={card.name} onChange={e => setCard({ ...card, name: e.target.value })} />
+                  <input placeholder="Card Number (4242...)" value={card.number} onChange={e => setCard({ ...card, number: e.target.value })} />
+                  <input placeholder="Name on Card" value={card.name} onChange={e => setCard({ ...card, name: e.target.value })} />
                   <div className="two">
-                    <div>
-                      <label>Expiry (MM/YY)</label>
-                      <input placeholder="12/28" value={card.exp} onChange={e => setCard({ ...card, exp: e.target.value })} />
-                    </div>
-                    <div>
-                      <label>CVC</label>
-                      <input placeholder="123" value={card.cvc} onChange={e => setCard({ ...card, cvc: e.target.value })} />
-                    </div>
+                    <input placeholder="MM/YY" value={card.exp} onChange={e => setCard({ ...card, exp: e.target.value })} />
+                    <input placeholder="CVC" value={card.cvc} onChange={e => setCard({ ...card, cvc: e.target.value })} />
                   </div>
-                </div>
-              )}
-
-              {paymentMethod === 'paypal' && <p className="muted">You'll be redirected to PayPal (simulated) to pay {LISTING_FEE} ETB.</p>}
-              {paymentMethod === 'bank_transfer' && (
-                <div>
-                  <p>Transfer <b>{LISTING_FEE} ETB</b> to:</p>
-                  <p><b>Bank:</b> Demo Bank</p>
-                  <p><b>Account:</b> 1234567890</p>
-                  <p><b>Name:</b> RentEase Ltd</p>
-                  <p className="muted">After submitting, the admin will verify your transfer. Once verified, your listing goes live.</p>
                 </div>
               )}
             </div>
           </>
         )}
 
-        <button className="btn-primary full" disabled={saving} style={{ marginTop: 20 }}>
-          {saving ? 'Saving…' : id ? 'Save changes' : `Create listing & pay ${LISTING_FEE} ETB`}
+        <button className="btn-primary full" disabled={saving || uploading} style={{ marginTop: 20 }}>
+          {saving ? 'Saving...' : id ? 'Save Changes' : `Publish Listing (${LISTING_FEE} ETB)`}
         </button>
       </form>
-
-      <div className="demo-box">
-        <b>💡 Sample image URLs:</b>
-        <div>https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1200</div>
-        <div>https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200</div>
-        <div>https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200</div>
-        <div>https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=1200</div>
-        <div>https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=1200</div>
-        <div>https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200</div>
-        <div>https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1200</div>
-        <div>https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1200</div>
-        <div>https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=1200</div>
-        <div>https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=1200</div>
-      </div>
     </div>
   );
 }
