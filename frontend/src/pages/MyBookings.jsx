@@ -26,7 +26,7 @@ export default function MyBookings() {
           <div className="booking-info">
             <h3>{b.title}</h3>
             <p className="muted">{b.check_in} → {b.check_out} • Guests {b.guests}</p>
-            <p>Total: <b>${b.total_price}</b> • Owner: {b.owner_name}</p>
+            <p>Total: <b>ETB {b.total_price?.toLocaleString()}</b> • Owner: {b.owner_name}</p>
             <p>Status: <span className={`status ${b.status}`}>{b.status}</span>
               {b.payment_status && <> • Payment: <span className={`status ${b.payment_status}`}>{b.payment_status}</span></>}
             </p>
